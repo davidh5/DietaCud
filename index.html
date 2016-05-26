@@ -1,0 +1,866 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="css/jquery.mobile-1.4.5.min.css">
+    <link rel="stylesheet" href="css/css.css">
+    <link rel="stylesheet" href="css/jquery.mobile.structure-1.4.5.min.css">
+    <script type="text/javascript" charset="utf-8" src="js/jquery-1.12.2.min.js"></script>
+    <script type="text/javascript" charset="utf-8" src="js/jquery.mobile-1.4.5.min.js"></script>
+    <link rel="stylesheet" href="themes/motyw.min.css"/>
+    <link rel="stylesheet" href="themes/jquery.mobile.icons.min.css"/>
+    <script type="text/javascript" src="js/jqm-spinbox.js"></script>
+    <script type="text/javascript" src="js/date.js"></script>
+    <script type="text/javascript" charset="utf-8" src="phonegap.js"></script>
+    <script type="text/javascript" charset="utf-8">
+        function init() {
+            document.addEventListener("deviceready", onDeviceReady, false);
+        }
+        function onDeviceReady() {
+
+            <!-- OGÓLNE -->
+            var nowozrobioneZdjecie = ""; //do przechowywania zdjęcia, które będzie dodane do posiłku
+
+            //dzięki tym 3 instrukcjom poniżej po wejściu na dany ekran tworzą się listy
+            $('#planPosilkow').on('pageshow', function (event, ui) {
+                zbudujListePosilkow();
+            });
+
+            $('#zakupy').on('pageshow', function (event, ui) {
+                zbudujListeZakupow();
+            });
+
+            $('#postepy').on('pageshow', function (event, ui) {
+                zbudujListePostepow();
+            });
+
+            //tu sprawdzam czy to jest pierwsze uruchomienie aplikacji żeby zainicjować powiadomienia motywacyjne
+            var isFirstRun = window.localStorage.getItem("isFirstRun");
+            //jeśli to pierwsze uruchomienie aplikacji to nie pobierze nic linijka wyżej, bo nie zostało to zainicjalizowane
+            if (isFirstRun) {
+                //kolejne uruchomienie, sprawdzam czy istnieje już notyfikacja (mogła zostać usunięta przez funkcję wyczysclistęposiłkow
+                cordova.plugins.notification.local.isPresent(9999, function (present) {
+                    if (present == false) {
+                        //jeśli nie ma tej notyfikacji to ustawiam ją na nowo
+                        powiadomieniaMotywacyjne();
+                    }
+                });
+            } else {
+                //pierwsze uruchomienie, ustawiam flagę, że pierwsze uruchomienie już było
+                window.localStorage.setItem("isFirstRun", 1); //wpisuje coś żeby już tu nie wchodził ten if
+                powiadomieniaMotywacyjne(); //ustawiam notyfiakcję przy pierwszym uruchomieniu
+            }
+
+            function powiadomieniaMotywacyjne() {
+                var dataPierwszegoPowiadomieniaMotywacyjnego = Date.today().next().monday(); //następny poniedziałek
+                var pierwszePowiadomienieMotywacyjne = new Date(dataPierwszegoPowiadomieniaMotywacyjnego.getFullYear(),
+                        dataPierwszegoPowiadomieniaMotywacyjnego.getMonth(), dataPierwszegoPowiadomieniaMotywacyjnego.getDate(),
+                        14, 0, 0); //następny poniedziałek o 14 i tak co tydzień będzie
+                //to niżej ustawia notyfikację
+                cordova.plugins.notification.local.schedule({
+                    id: 9999,
+                    text: "Świetnie Ci idzie! Oby tak dalej! Pamiętaj o przestrzeganiu diety :)",
+                    at: pierwszePowiadomienieMotywacyjne,
+                    every: "week"
+                });
+            }
+
+            var db = window.sqlitePlugin.openDatabase({name: "my.db", location: 0}); //inicjalizacja bazy danych
+            //poniżej stworzenie odpowiednich tabel, jeśli już są to nic się nie dzieje
+            db.transaction(function (tx) {
+                tx.executeSql('CREATE TABLE IF NOT EXISTS posilki (id integer primary key, posilek text, dzien text, ' +
+                        'godzina text, zdjecie text)');
+                tx.executeSql('CREATE TABLE IF NOT EXISTS listaZakupow (id integer primary key, produkt text)');
+                tx.executeSql('CREATE TABLE IF NOT EXISTS produkty (id integer primary key, produkt text, kod text)');
+                tx.executeSql('CREATE TABLE IF NOT EXISTS postepy (id integer primary key, data text, waga text, klatka text,' +
+                        'brzuch text, biodra text, ramiona text, uda text)');
+            });
+
+
+            <!-- LISTA POSILKOW -->
+            //poniżej nasłuchiwacze do kliknięcia na element listy
+            //są osobne listy dla każdego dnia
+            $('#listaPosilkowPoniedzialek').on('tap', 'li', function (event) {
+                var id = $(this).attr('id'); //pobiera id danego wpisu z id pozycji na liście, jest zrobione tak, że to są te same wartości
+                usunPosilek(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePosilkow(); //odświeżam listę posiłków od nowa ją budując
+                }, 500);
+            });
+
+            $('#listaPosilkowWtorek').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunPosilek(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePosilkow();
+                }, 500);
+            });
+
+            $('#listaPosilkowSroda').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunPosilek(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePosilkow();
+                }, 500);
+            });
+
+            $('#listaPosilkowCzwartek').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunPosilek(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePosilkow();
+                }, 500);
+            });
+
+            $('#listaPosilkowPiatek').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunPosilek(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePosilkow();
+                }, 500);
+            });
+
+            $('#listaPosilkowSobota').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunPosilek(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePosilkow();
+                }, 500);
+            });
+
+            $('#listaPosilkowNiedziela').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunPosilek(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePosilkow();
+                }, 500);
+            });
+
+            //wyszukanie przycisku do obsługi poszczególnych funkcji
+            var btnOtworzOknoDodawaniaPosilku = document.getElementById("dodajPosilek");
+            //zarejestrowanie co ma się dziać po kliknięciu
+            btnOtworzOknoDodawaniaPosilku.onclick = function () {
+                window.location = "#oknoDodawaniaPosilku"; //zmienia widok na okno dialogowe do dodawania posiłku
+            };
+
+            var btnWyczyscListePosilkow = document.getElementById("wyczyscListePosilkow");
+            btnWyczyscListePosilkow.onclick = function () {
+                wyczyscListePosilkow();
+            };
+
+            var btnZapiszPosilek = document.getElementById("zapiszPosilek");
+            btnZapiszPosilek.onclick = function () {
+                dodajPosilek();
+            };
+
+            var btnZrobZdjecie = document.getElementById("zrobZdjecie");
+            btnZrobZdjecie.onclick = function () {
+                zrobZdjecie();
+            };
+
+            //usuwanie pojedynczego posiłku z bazy danych
+            function usunPosilek(id2) {
+                //usunięcie danego posiłku z bazy danych
+                db.transaction(function (tx) {
+                    tx.executeSql("DELETE FROM posilki where id=?", [id2]);
+                });
+                //usunięcie również notyfikacji o danym posiłku, żeby nie przypominało o czymś czego nie ma
+                cordova.plugins.notification.local.cancel(id2, function () {
+                    alert("Wraz z usunięciem danego posiłku usunięto również jego notyfikację!");
+                });
+            }
+
+            //usuwanie wszystkich posiłków z bazy danych - czyli całego planu posiłków
+            function wyczyscListePosilkow() {
+                db.transaction(function (tx) {
+                    tx.executeSql("DELETE FROM posilki");
+                });
+                zbudujListePosilkow(); //tu buduje od nowa listę, tak żeby oprócz tego, że usunęło z bazy danych to i usunęło z listy na ekranie
+                //usuwam wszystkie notyfikacje dotyczące posiłków, również notyfikacje motywacyjne, ale przy kolejnym uruchomieniu apki na nowo się ustawi powiadomienie motywujące
+                cordova.plugins.notification.local.cancelAll(function () {
+                    alert("Wraz z usunięciem całej listy posiłków usunięto również wszystkie notyfikacje!");
+                }, this);
+            }
+
+            //funkcja sortująca listę posiłków na dany dzień, tak żeby danego dnia w dobrej kolejności się posiłki pojawiały
+            function sortujListePosilkow() {
+                var $list = $("#listaPosilkowPoniedzialek");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+
+                var $list = $("#listaPosilkowWtorek");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+
+                var $list = $("#listaPosilkowSroda");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+
+                var $list = $("#listaPosilkowCzwartek");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+
+                var $list = $("#listaPosilkowPiatek");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+
+                var $list = $("#listaPosilkowSobota");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+
+                var $list = $("#listaPosilkowNiedziela");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+            }
+
+            //funkcja dodająca posiłek do bazy danych
+            function dodajPosilek() {
+                var posilek = $("#posilek").val(); //pobiera dane z pole edycyjnego
+                var dzien = $("#dzien :radio:checked").val(); //sprawdza, który dzień został zaznaczony
+                var godziny = $("#godziny").val(); // pobiera dane ze spinnerka
+                var minuty = $("#minuty").val();
+                //sprawdzenie czy nie jest wybrana jednocyfrowa godzina i minuta, jeśli tak to dostawiam 0 na początku
+                if (minuty.toString().length == 1) {
+                    minuty = "0" + minuty;
+                }
+                if (godziny.toString().length == 1) {
+                    godziny = "0" + godziny;
+                }
+                var czas = godziny + ":" + minuty; //w takiej formie zapisze czas w bazie
+                db.transaction(function (tx) {
+                    tx.executeSql("INSERT INTO posilki (posilek, dzien, godzina, zdjecie) VALUES (?,?,?,?)", [posilek, dzien, czas, nowozrobioneZdjecie],
+                            function (tx, res) {
+                                var idPosilku = res.insertId; //pobieram ostatnio wstawione id tak żeby notyfiakcja miała to samo id
+                                nowozrobioneZdjecie = ""; //wyczyszczenie zmiennej przechowującej ścieżkę dostępu do zdjęcia
+                                dodajNotyfikacjeDlaPosilkow(idPosilku, dzien, minuty, godziny, posilek); //dodanie notyfikacji
+                            });
+                });
+                $("#posilek").val(""); // czyszczenie pola edycyjnego do wpisania posiłku
+                zbudujListePosilkow(); // tak żeby po dodaniu posiłku odświeżyło listę wyświetlaną na ekranie
+            }
+
+            //funkcja dodająca notyfikację dla danego posiłku, notyfikacja powtarzana jest co tydzień
+            function dodajNotyfikacjeDlaPosilkow(id, dzien, minuty, godziny, posilek) {
+                var now = new Date(); //dzisiejsza data
+                var obecnyDzien = now.getDay(); //zeby wiedziec jaka liczba przypada na obecny dzien
+                var docelowyDzienNotyfikacji; //zeby wiedziec jaka liczba przypada na dzien, w ktorym ma byc pierwsza notyfikacja
+                //zmienna dzien jest pobrana z bazy danych i przeslana jako argument
+                switch (dzien) {
+                    case "Poniedziałek":
+                        docelowyDzienNotyfikacji = 1;
+                        break;
+                    case "Wtorek":
+                        docelowyDzienNotyfikacji = 2;
+                        break;
+                    case "Środa":
+                        docelowyDzienNotyfikacji = 3;
+                        break;
+                    case "Czwartek":
+                        docelowyDzienNotyfikacji = 4;
+                        break;
+                    case "Piątek":
+                        docelowyDzienNotyfikacji = 5;
+                        break;
+                    case "Sobota":
+                        docelowyDzienNotyfikacji = 6;
+                        break;
+                    case "Niedziela":
+                        docelowyDzienNotyfikacji = 0;
+                        break;
+                }
+                var dataPierwszejNotyfikacji; //wtedy ma byc pierwszy raz wyswietlona notyfikacja
+                //jesli numer obecnego dnia rozni sie od docelowego (czyli posilek nie jest na dzisiaj)
+                if (obecnyDzien != docelowyDzienNotyfikacji) {
+                    switch (dzien) {
+                        case "Poniedziałek":
+                            //jesli notyfikacja nie jest na dzisiaj to szukam kolejnego poniedzialku
+                            dataPierwszejNotyfikacji = Date.today().next().monday();
+                            break;
+                        case "Wtorek":
+                            dataPierwszejNotyfikacji = Date.today().next().tuesday();
+                            break;
+                        case "Środa":
+                            dataPierwszejNotyfikacji = Date.today().next().wednesday();
+                            break;
+                        case "Czwartek":
+                            dataPierwszejNotyfikacji = Date.today().next().thursday();
+                            break;
+                        case "Piątek":
+                            dataPierwszejNotyfikacji = Date.today().next().friday();
+                            break;
+                        case "Sobota":
+                            dataPierwszejNotyfikacji = Date.today().next().saturday();
+                            break;
+                        case "Niedziela":
+                            dataPierwszejNotyfikacji = Date.today().next().sunday();
+                            break;
+                    }
+                } else {
+                    // jesli notyfikacja jest na dzisiaj to ustawiam zmienna z data na obecna date
+                    //tym samym notyfikacja bedzie jeszcze dzisiaj
+                    dataPierwszejNotyfikacji = now;
+                }
+                //okreslam w jaki dzien i o jakiej godzinie ma byc notyfikacja, powtarza się co tydzień
+                var notificationTime = new Date(dataPierwszejNotyfikacji.getFullYear(), dataPierwszejNotyfikacji.getMonth(),
+                        dataPierwszejNotyfikacji.getDate(), godziny, minuty, 0);
+                cordova.plugins.notification.local.schedule({
+                    id: id,
+                    text: "Czas na posiłek: " + posilek,
+                    at: notificationTime,
+                    every: "week"
+                });
+                alert("Ustawiono cotygodniową notyfikację przypominającą o posiłku w jego porze")
+            }
+
+            //funkcja do robienia zdjęcia do posiłku
+            function zrobZdjecie() {
+                navigator.camera.getPicture(onSuccess, onFail, {
+                    quality: 50,
+                    destinationType: Camera.DestinationType.FILE_URI, correctOrientation: true
+                });
+
+                function onSuccess(imageURI) {
+                    nowozrobioneZdjecie = imageURI; //do zmiennej przechowującej ścieżkę do zdjecia przypisuje ścieżkę zdjęcia, które zostało zrobione
+                }
+
+                function onFail(message) {
+                    alert('Nie wykonano zdjęcia z powodu: ' + message);
+                }
+            }
+
+            //funkcja budująca listę posiłków pokazywaną na ekranie
+            function zbudujListePosilkow() {
+                //kasuję listę wyświetloną na ekranie
+                $("#listaPosilkowPoniedzialek").empty();
+                $("#listaPosilkowWtorek").empty();
+                $("#listaPosilkowSroda").empty();
+                $("#listaPosilkowCzwartek").empty();
+                $("#listaPosilkowPiatek").empty();
+                $("#listaPosilkowSobota").empty();
+                $("#listaPosilkowNiedziela").empty();
+                db.transaction(function (tx) {
+                    //pobieram dane z bazy danych
+                    tx.executeSql("select id, posilek, dzien, godzina, zdjecie from posilki", [], function (tx, res) {
+                        for (i = 0; i < res.rows.length; i++) {
+                            //przypisuje dane z bazy danych do zmiennych, dane są pobierane w pętli, pojedynczo dla każdego wiersza bazy
+                            var ID = res.rows.item(i).id.toString();
+                            var pobranyPosilek = res.rows.item(i).posilek;
+                            var pobranyDzien = res.rows.item(i).dzien;
+                            var pobranaGodzina = res.rows.item(i).godzina;
+                            var pobraneZdjecie = res.rows.item(i).zdjecie;
+
+                            //sprawdzam czy z bazy została pobrana ścieżka do zdjęcia posiłku
+                            if (pobraneZdjecie == "") {
+                                pobraneZdjecie = "images/icon.png"; //jeśli nie ma zdjęcia to jest wyświetlana ikonka apki
+                            }
+
+                            //sprawdzam dla jakiego dnia jest posiłek i dodaję go do danej listy, wyświetlając co to ma być i godzinę
+                            if (pobranyDzien == "Poniedziałek") {
+                                $("#listaPosilkowPoniedzialek").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' +
+                                        '<img src=\"' + pobraneZdjecie + '\">' + 'Godzina: ' + pobranaGodzina + '\<br\>' +
+                                        pobranyPosilek + '</a></li>');
+                                $("#listaPosilkowPoniedzialek").listview("refresh"); //odświeżam listę na ekranie
+                            } else if (pobranyDzien == "Wtorek") {
+                                $("#listaPosilkowWtorek").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' +
+                                        '<img src=\"' + pobraneZdjecie + '\">' + 'Godzina: ' + pobranaGodzina + '\<br\>' +
+                                        pobranyPosilek + '</a></li>');
+                                $("#listaPosilkowWtorek").listview("refresh");
+                            } else if (pobranyDzien == "Środa") {
+                                $("#listaPosilkowSroda").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' +
+                                        '<img src=\"' + pobraneZdjecie + '\">' + 'Godzina: ' + pobranaGodzina + '\<br\>' +
+                                        pobranyPosilek + '</a></li>');
+                                $("#listaPosilkowSroda").listview("refresh");
+                            } else if (pobranyDzien == "Czwartek") {
+                                $("#listaPosilkowCzwartek").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' +
+                                        '<img src=\"' + pobraneZdjecie + '\">' + 'Godzina: ' + pobranaGodzina + '\<br\>' +
+                                        pobranyPosilek + '</a></li>');
+                                $("#listaPosilkowCzwartek").listview("refresh");
+                            } else if (pobranyDzien == "Piątek") {
+                                $("#listaPosilkowPiatek").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' +
+                                        '<img src=\"' + pobraneZdjecie + '\">' + 'Godzina: ' + pobranaGodzina + '\<br\>' +
+                                        pobranyPosilek + '</a></li>');
+                                $("#listaPosilkowPiatek").listview("refresh");
+                            } else if (pobranyDzien == "Sobota") {
+                                $("#listaPosilkowSobota").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' +
+                                        '<img src=\"' + pobraneZdjecie + '\">' + 'Godzina: ' + pobranaGodzina + '\<br\>' +
+                                        pobranyPosilek + '</a></li>');
+                                $("#listaPosilkowSobota").listview("refresh");
+                            } else if (pobranyDzien == "Niedziela") {
+                                $("#listaPosilkowNiedziela").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' +
+                                        '<img src=\"' + pobraneZdjecie + '\">' + 'Godzina: ' + pobranaGodzina + '\<br\>' +
+                                        pobranyPosilek + '</a></li>');
+                                $("#listaPosilkowNiedziela").listview("refresh");
+                            }
+                        }
+                        //tak zeby ciagle sortowalo i elementy na liście były od najwcześniejszego posiłku do najpóźniejszego
+                        sortujListePosilkow();
+                    });
+                });
+            }
+
+
+            <!-- LISTA ZAKUPÓW -->
+            $('#listaZakupow').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunZakup(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListeZakupow();
+                }, 500);
+            });
+
+            var btnWyczyscListeZakupow = document.getElementById("wyczyscListeZakupow");
+            btnWyczyscListeZakupow.onclick = function () {
+                wyczyscListeZakupow();
+            };
+
+            var btnSortujListeZakupow = document.getElementById("sortujListeZakupow");
+            btnSortujListeZakupow.onclick = function () {
+                sortujListeZakupow();
+            };
+
+
+            function usunZakup(id2) {
+                db.transaction(function (tx) {
+                    tx.executeSql("DELETE FROM listaZakupow where id=?", [id2]);
+                });
+            }
+
+            function wyczyscListeZakupow() {
+                db.transaction(function (tx) {
+                    tx.executeSql("DELETE FROM listaZakupow");
+                });
+                zbudujListeZakupow();
+            }
+
+            function sortujListeZakupow() {
+                var $list = $("#listaZakupow");
+                $list.children().detach().sort(function (a, b) {
+                    return $(a).text().localeCompare($(b).text());
+                }).appendTo($list);
+            }
+
+            //funkcja służąca do przeszukiwania bazy danych w poszukiwaniu kodu produktu
+            //przekazuje tu kod kreskowy pobrany skanerem
+            function przeszukajBazeProduktow(kod) {
+                var znaleziony = false; //flaga do oznaczania czy znaleziono kod czy też nie
+                db.transaction(function (tx) {
+                    tx.executeSql("select kod,produkt from produkty", [], function (tx, res) {
+                        for (i = 0; i < res.rows.length; i++) {
+                            //dane z bazy przypisuję do zmiennych
+                            var kodProduktu = res.rows.item(i).kod;
+                            var nazwaProduktu = res.rows.item(i).produkt;
+
+                            //sprawdzam czy kod z bazy jest taki sam jak przekazany ze skanera kod
+                            if (kodProduktu.toString() == kod.toString()) {
+                                znaleziony = true; //znaleziono, więc ustawiam odpowiedno flagę
+                                dodajProdukt(nazwaProduktu); //wywołuję funkcję z nazwą produktu pobraną z bazy
+                            }
+                        }
+                        //jeśli nie znaleziono w całej bazie tego kodu, czyli flaga nie uległa zmianie
+                        if (znaleziony == false) {
+                            navigator.vibrate([200, 100, 200]); //wibruje żeby zaznaczyć, że coś jest nie tak, 0,2s wibruje, 0,1s pauza i 0,2s wibruje
+                            window.location = "#oknoDodawaniaProduktu"; //zmieniam aktualnie wyświetlany ekran
+                            $("#kod").val(kod); //w pole edycyjne wpisuje kod przekazany przez skaner
+                        }
+                    });
+                });
+            }
+
+            //funkcja dodająca produkt do kupienia do bazy danych przechowującej listę zakupów
+            function dodajProdukt(produktDoDodania) {
+                db.transaction(function (tx) {
+                    tx.executeSql("INSERT INTO listaZakupow (produkt) VALUES (?)", [produktDoDodania], function (tx, res) {
+                    });
+                });
+
+                //czyszczę pola edycyjne w oknie dialogowym
+                $("#produkt").val("");
+                $("#kod").val("");
+                zbudujListeZakupow(); //tworzę na nowo listę z zakupami
+            }
+
+            function zbudujListeZakupow() {
+                $("#listaZakupow").empty();
+                db.transaction(function (tx) {
+                    tx.executeSql("select id, produkt from listaZakupow", [], function (tx, res) {
+                        for (i = 0; i < res.rows.length; i++) {
+                            var IDproduktu = res.rows.item(i).id.toString();
+                            var pobranyProdukt = res.rows.item(i).produkt;
+                            $("#listaZakupow").append('<li data-icon=\"delete\" id=\"' + IDproduktu + '\"><a>' +
+                                    pobranyProdukt + '</a></li>');
+                            $("#listaZakupow").listview("refresh");
+                        }
+                    });
+                });
+            }
+
+            var buttonSkaner = document.getElementById("dodajProdukt");
+            buttonSkaner.onclick = function () {
+                skanuj()
+            };
+
+            //funkcja wywołująca skaner kodów kreskowych
+            function skanuj() {
+                cordova.plugins.barcodeScanner.scan(
+                        function (result) {
+                            przeszukajBazeProduktow(result.text); //wywołanie przeszukiwania bazy kodów kreskowych w celu dodania czegoś na listę zakupów
+                        },
+                        function (error) {
+                            alert("Nie udało się niczego zeskanować. Błąd: " + error);
+                        }
+                );
+            }
+
+            // przycisk w oknie dialogowym, które pokazuje się gdy nie wyszuka kodu w bazie
+            var buttonProduktuDoBazy = document.getElementById("zapiszProdukt");
+            buttonProduktuDoBazy.onclick = function () {
+                zapiszProduktDoBazy()
+            };
+
+            function zapiszProduktDoBazy() {
+                //pobieram dane z pól edycyjnych
+                var nazwaProduktu = $("#produkt").val();
+                var kodProduktu = $("#kod").val();
+                //dodaję kod kreskowy i nazwę towaru do bazy danych
+                db.transaction(function (tx) {
+                    tx.executeSql("INSERT INTO produkty (kod, produkt) VALUES (?,?)", [kodProduktu, nazwaProduktu],
+                            function (tx, res) {
+                            });
+                });
+                dodajProdukt(nazwaProduktu); //wywołanie funckji dodającej wpis z towarem do bazy danych listy zakupów
+            }
+
+
+            <!-- LISTA POSTĘPÓW -->
+            $('#listaPostepow').on('tap', 'li', function (event) {
+                var id = $(this).attr('id');
+                usunPostep(id);
+                //ponizej opoznia uruchomienie tej funkcji o pol sekundy, bez tego sie chrzanilo, bo za duzo usuwalo  - za szybko sie to dzialo
+                setTimeout(function () {
+                    zbudujListePostepow();
+                }, 500);
+            });
+
+            var btnOtworzOknoDodawaniaPostepu = document.getElementById("dodajPostep");
+            btnOtworzOknoDodawaniaPostepu.onclick = function () {
+                window.location = "#oknoDodawaniaPostepu";
+            };
+
+            var btnWyczyscListePostepow = document.getElementById("wyczyscListePostepow");
+            btnWyczyscListePostepow.onclick = function () {
+                wyczyscListePostepow();
+            };
+
+            var btnZapiszPostep = document.getElementById("zapiszPostep");
+            btnZapiszPostep.onclick = function () {
+                dodajPostep();
+            };
+
+            function usunPostep(id2) {
+                db.transaction(function (tx) {
+                    tx.executeSql("DELETE FROM postepy where id=?", [id2]);
+                });
+            }
+
+            function wyczyscListePostepow() {
+                db.transaction(function (tx) {
+                    tx.executeSql("DELETE FROM postepy");
+                });
+                zbudujListePostepow();
+            }
+
+            function dodajPostep() {
+                var waga = $("#waga").val();
+                var klatka = $("#klatka").val();
+                var brzuch = $("#brzuch").val();
+                var biodra = $("#biodra").val();
+                var ramiona = $("#ramiona").val();
+                var uda = $("#uda").val();
+
+                var now = new Date();
+                //buduje wpis z data do bazy danych
+                var data = now.getDate() + "." + (now.getMonth() + 1) + "." + now.getFullYear();
+
+                db.transaction(function (tx) {
+                    tx.executeSql("INSERT INTO postepy (data, waga, klatka, brzuch, biodra, ramiona, uda) VALUES (?,?,?,?,?,?,?)",
+                            [data, waga, klatka, brzuch, biodra, ramiona, uda],
+                            function (tx, res) {
+                            });
+                });
+                $("#waga").val("");
+                $("#klatka").val("");
+                $("#brzuch").val("");
+                $("#biodra").val("");
+                $("#ramiona").val("");
+                $("#uda").val("");
+                zbudujListePostepow();
+            }
+
+            function zbudujListePostepow() {
+                $("#listaPostepow").empty();
+                db.transaction(function (tx) {
+                    tx.executeSql("select id, data, waga, klatka, brzuch, biodra, ramiona, uda from postepy", [], function (tx, res) {
+                        for (i = 0; i < res.rows.length; i++) {
+                            var ID = res.rows.item(i).id.toString();
+                            var pobranaData = res.rows.item(i).data;
+                            var pobranaWaga = res.rows.item(i).waga;
+                            var pobranaKlatka = res.rows.item(i).klatka;
+                            var pobranyBrzuch = res.rows.item(i).brzuch;
+                            var pobraneBiodra = res.rows.item(i).biodra;
+                            var pobraneRamiona = res.rows.item(i).ramiona;
+                            var pobraneUda = res.rows.item(i).uda;
+
+                            $("#listaPostepow").append('<li data-icon=\"delete\" id=\"' + ID + '\"><a>' + 'Data: ' +
+                                    pobranaData + '\<br\>Waga: ' + pobranaWaga + ' kg\<br\>Obwód klatki piersiowej: ' +
+                                    pobranaKlatka + ' cm\<br\>Obwód brzucha: ' + pobranyBrzuch + ' cm\<br\>Obwód bioder: ' +
+                                    pobraneBiodra + ' cm\<br\>Obwód ramion: ' + pobraneRamiona + ' cm\<br\>Obwód ud: ' +
+                                    pobraneUda + ' cm</a></li>');
+                            $("#listaPostepow").listview("refresh");
+
+
+                        }
+                    });
+                });
+            }
+
+        }
+
+    </script>
+    <script id="panel-init">
+        //inicjalizuje zewnetrzny panel, tak zeby nie bylo potrzeby tworzenia go w kazdym oknie osobno
+        $(function () {
+            $("body>[data-role='panel']").panel().enhanceWithin();
+        });
+
+        //ponizej dodaje obsluge swipe'a zeby wysuwalo menu
+        $(document).on("pagecreate", function () {
+            $(document).on("swiperight", function (e) {
+                if ($(".ui-page-active").jqmData("panel") !== "open") {
+                    if (e.type === "swiperight") {
+                        $("#mypanel").panel("open");
+                    }
+                }
+            });
+        });
+    </script>
+</head>
+<body onload="init()">
+
+<!-- PANEL -->
+<div data-role="panel" id="mypanel" data-theme="a">
+    <ul data-role="listview">
+        <li data-icon="delete"><a href="#" data-rel="close">Zamknij menu</a></li>
+        <li><a href="#glowna">Strona Główna</a></li>
+        <li><a href="#planPosilkow">Plan Posiłków</a></li>
+        <li><a href="#zakupy">Lista Zakupów</a></li>
+        <li><a href="#postepy">Dzienniczek postępów</a></li>
+    </ul>
+</div>
+
+<!-- STRONA GLOWNA -->
+<div data-role="page" id="glowna" data-transition="slidedown" data-theme="a">
+    <div data-role="header">
+        <a href="#mypanel" data-icon="bars" data-iconpos="notext">Menu</a>
+        <h3>DietaCud</h3>
+    </div>
+    <div data-role="main" class="ui-content">
+        <p>DietaCud jest aplikacją wspomagającą przestrzeganie diety poprzez:</p>
+        <li>wprowadzanie posiłków, które należy spożyć danego dnia o danej godzinie,</li>
+        <li>wyświetlanie powiadomień przypominających o tym co powinniśmy zjeść,</li>
+        <li>możliwość dodawania zdjęć posiłków,</li>
+        <li>rejestrowanie postępów w postaci zapisywania wymiarów ciała oraz wagi wraz z powiadomieniami
+            motywacyjnymi,
+        </li>
+        <li>tworzenie listy zakupów wykorzystującej skaner kodów kreskowych (baza produktów tworzona na bieżąco, tj.
+            przy pierwszym wystąpieniu danego kodu kreskowego wpisujemy nazwę produktu),
+        </li>
+        <li>dodatkowo aplikacja korzysta z wibracji urządzenia.</li>
+    </div>
+    <div data-role="footer">
+        <h3>Autorzy: D.Holko i B.Godula</h3>
+        <h3>v.1.0.0</h3>
+    </div>
+</div>
+
+<!-- STRONA Z PLANEM POSIŁKÓW -->
+<div data-role="page" id="planPosilkow" data-transition="slidedown" data-theme="a">
+
+    <div data-role="header">
+        <a href="#mypanel" data-icon="bars" data-iconpos="notext">Menu</a>
+        <h3>Plan Posiłków</h3>
+    </div>
+    <div data-role="main" class="ui-content">
+        <p style="color:blue;"><b>PONIEDZIAŁEK</b></p>
+        <ul data-role="listview" id="listaPosilkowPoniedzialek">
+        </ul>
+        <p style="color:blue;"><b>WTOREK</b></p>
+        <ul data-role="listview" id="listaPosilkowWtorek">
+        </ul>
+        <p style="color:blue;"><b>ŚRODA</b></p>
+        <ul data-role="listview" id="listaPosilkowSroda">
+        </ul>
+        <p style="color:blue;"><b>CZWARTEK</b></p>
+        <ul data-role="listview" id="listaPosilkowCzwartek">
+        </ul>
+        <p style="color:blue;"><b>PIĄTEK</b></p>
+        <ul data-role="listview" id="listaPosilkowPiatek">
+        </ul>
+        <p style="color:blue;"><b>SOBOTA</b></p>
+        <ul data-role="listview" id="listaPosilkowSobota">
+        </ul>
+        <p style="color:blue;"><b>NIEDZIELA</b></p>
+        <ul data-role="listview" id="listaPosilkowNiedziela">
+        </ul>
+        <p></p>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="dodajPosilek">Dodaj posiłek</a>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="wyczyscListePosilkow">Wyczyść listę posiłków</a>
+    </div>
+    <div data-role="footer">
+    </div>
+</div>
+
+<!-- OKNO DIALOGOWE DO DODAWANIA POSIŁKU NA PLAN POSIŁKÓW -->
+<div data-role="page" id="oknoDodawaniaPosilku" data-dialog="true" data-transition="pop" data-theme="a">
+    <div data-role="header">
+        <h3>Dodawanie posiłku</h3>
+    </div>
+    <div data-role="main" class="ui-content">
+        <form method="post">
+            <fieldset data-role="controlgroup" id="dzien" name="dzien">
+                <legend>Dzień tygodnia:</legend>
+                        <input type="radio" name="dzienOpcja" id="poniedzialek" value="Poniedziałek">
+                        <label for="poniedzialek">Poniedziałek</label>
+                <input type="radio" name="dzienOpcja" id="wtorek" value="Wtorek">
+                        <label for="wtorek">Wtorek</label>
+                <input type="radio" name="dzienOpcja" id="sroda" value="Środa">
+                        <label for="sroda">Środa</label>
+                <input type="radio" name="dzienOpcja" id="czwartek" value="Czwartek">
+                        <label for="czwartek">Czwartek</label>
+                <input type="radio" name="dzienOpcja" id="piatek" value="Piątek">
+                        <label for="piatek">Piątek</label>
+                <input type="radio" name="dzienOpcja" id="sobota" value="Sobota">
+                        <label for="sobota">Sobota</label>
+                <input type="radio" name="dzienOpcja" id="niedziela" value="Niedziela">
+                        <label for="niedziela">Niedziela</label>
+            </fieldset>
+            <p>Czas posiłku:</p>
+            <label for="godziny">Godzina:</label>
+            <input type="text" data-role="spinbox" name="spin" id="godziny" value="12" min="0" max="23"/>
+            <label for="minuty">Minuty:</label>
+            <input type="text" data-role="spinbox" name="spin" id="minuty" value="30" min="0" max="59"/>
+            <label for="posilek">Co zjesz?</label>
+            <input type="text" name="posilek" id="posilek">
+        </form>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="zrobZdjecie">Zrób zdjęcie</a>
+        <a href="#planPosilkow" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline"
+           data-transition="slidedown" id="zapiszPosilek">Zapisz</a>
+    </div>
+    <div data-role="footer">
+    </div>
+</div>
+
+<!-- STRONA Z LISTĄ ZAKUPÓW -->
+<div data-role="page" id="zakupy" data-transition="slidedown" data-theme="a">
+    <div data-role="header">
+        <a href="#mypanel" data-icon="bars" data-iconpos="notext">Menu</a>
+        <h3>Lista Zakupów</h3>
+    </div>
+    <div data-role="main" class="ui-content">
+        <ul data-role="listview" id="listaZakupow">
+        </ul>
+        <p></p>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="dodajProdukt">Dodaj produkt do kupienia</a>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="wyczyscListeZakupow">Wyczyść listę zakupów</a>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="sortujListeZakupow">Sortuj listę zakupów</a>
+    </div>
+    <div data-role="footer">
+    </div>
+</div>
+
+<!-- OKNO DIALOGOWE DO DODAWANIA PRODUKTU NA LISTĘ ZAKUPÓW -->
+<div data-role="page" id="oknoDodawaniaProduktu" data-dialog="true" data-transition="pop" data-theme="a">
+    <div data-role="header">
+        <h3>Dodawanie produktu do bazy</h3>
+    </div>
+    <div data-role="main" class="ui-content">
+        <label for="kod">Kod produktu:</label>
+        <input type="text" name="kod" id="kod">
+        <label for="produkt">Nazwa produktu:</label>
+        <input type="text" name="produkt" id="produkt">
+        <a href="#zakupy" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline"
+           data-transition="slidedown" id="zapiszProdukt">Zapisz produkt w bazie</a>
+    </div>
+    <div data-role="footer">
+    </div>
+</div>
+
+<!-- STRONA Z POSTĘPAMI -->
+<div data-role="page" id="postepy" data-transition="slidedown" data-theme="a">
+    <div data-role="header">
+        <a href="#mypanel" data-icon="bars" data-iconpos="notext">Menu</a>
+        <h3>Postępy</h3>
+    </div>
+    <div data-role="main" class="ui-content">
+        <ul data-role="listview" id="listaPostepow">
+        </ul>
+        <p></p>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="dodajPostep">Dodaj postęp w diecie</a>
+        <a href="#" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline" data-transition="slidedown"
+           id="wyczyscListePostepow">Wyczyść listę postępów</a>
+    </div>
+    <div data-role="footer">
+    </div>
+</div>
+
+<!-- OKNO DIALOGOWE DO DODAWANIA POSTĘPÓW -->
+<div data-role="page" id="oknoDodawaniaPostepu" data-dialog="true" data-transition="pop" data-theme="a">
+    <div data-role="header">
+        <h3>Dodawanie postępu w diecie do bazy</h3>
+    </div>
+    <div data-role="main" class="ui-content">
+        <label for="waga">Waga:</label>
+        <input type="text" name="waga" id="waga">
+        <label for="klatka">Obwód klatki piersiowej:</label>
+        <input type="text" name="klatka" id="klatka">
+        <label for="brzuch">Obwód brzucha:</label>
+        <input type="text" name="brzuch" id="brzuch">
+        <label for="biodra">Obwód bioder:</label>
+        <input type="text" name="biodra" id="biodra">
+        <label for="ramiona">Obwód ramion:</label>
+        <input type="text" name="ramiona" id="ramiona">
+        <label for="uda">Obwód uda:</label>
+        <input type="text" name="uda" id="uda">
+
+        <a href="#postepy" role="button" class="ui-shadow ui-btn ui-corner-all ui-btn-inline"
+           data-transition="slidedown" id="zapiszPostep">Zapisz postęp w bazie</a>
+    </div>
+    <div data-role="footer">
+    </div>
+</div>
+
+</body>
+</html>
